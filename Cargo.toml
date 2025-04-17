@@ -1,0 +1,12 @@
+[package]
+name = "arti-gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arti = "1.4.2"
+eframe = { version = "0.31.1", features = ["persistence"] }
+log = "0.4.27"
+tokio = "1.44.2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
