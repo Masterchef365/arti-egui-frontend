@@ -6,9 +6,13 @@ edition = "2024"
 [dependencies]
 arti = { version = "1.4.2", features = ["experimental-api"] }
 arti-client = "0.29.0"
+tor-rtcompat = { version = "0.29.0", features = ["rustls"] }
 eframe = { version = "0.31.1", features = ["persistence"] }
 log = "0.4.27"
 tokio = "1.44.2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 tor-config = "0.29.0"
+metrics-exporter-prometheus = { version = "0.16.2", default-features = false, features = ["http-listener"] }
+rlimit = "0.10.1"
+futures = "0.3.14"
