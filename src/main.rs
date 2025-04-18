@@ -1,8 +1,11 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use anyhow::Result;
+use arti::ArtiConfig;
+use arti_client::TorClientConfig;
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 use log::{Level, Metadata, Record};
+use tor_config::{ConfigurationSources, Listen};
 
 fn main() {
     eframe::run_native(
@@ -46,17 +49,13 @@ pub struct ArtiApp {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[derive(Default)]
 pub struct SaveData {
-    example_value: f32,
-}
-
-impl Default for SaveData {
-    fn default() -> Self {
-        Self {
-            // Example stuff:
-            example_value: 2.7,
-        }
-    }
+    socks_listen: Listen,
+    dns_listen: Listen,
+    config_sources: ConfigurationSources,
+    arti_config: ArtiConfig,
+    client_config: TorClientConfig,
 }
 
 impl ArtiApp {
@@ -87,7 +86,7 @@ impl eframe::App for ArtiApp {
         // Read logs
         self.logs.extend(self.logs_rx.try_iter());
 
-        /// Only keep the last 25,000 log messages
+        // Only keep the last 25,000 log messages
         let n = self.logs.len();
         if n > 50_000 {
             self.logs = self.logs[n / 2..].to_vec();

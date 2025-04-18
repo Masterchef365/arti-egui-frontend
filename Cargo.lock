@@ -437,10 +437,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arti",
+ "arti-client",
  "eframe",
  "log",
  "serde",
  "tokio",
+ "tor-config",
 ]
 
 [[package]]

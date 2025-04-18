@@ -5,8 +5,10 @@ edition = "2024"
 
 [dependencies]
 arti = "1.4.2"
+arti-client = "0.29.0"
 eframe = { version = "0.31.1", features = ["persistence"] }
 log = "0.4.27"
 tokio = "1.44.2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
+tor-config = "0.29.0"
