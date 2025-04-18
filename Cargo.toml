@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-arti = "1.4.2"
+arti = { version = "1.4.2", features = ["experimental-api"] }
 arti-client = "0.29.0"
 eframe = { version = "0.31.1", features = ["persistence"] }
 log = "0.4.27"

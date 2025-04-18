@@ -378,6 +378,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "visibility",
  "winapi",
 ]
 

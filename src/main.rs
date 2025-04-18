@@ -3,7 +3,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use anyhow::Result;
 use arti::ArtiConfig;
 use arti_client::TorClientConfig;
-use eframe::egui::{self, Color32, RichText, ScrollArea};
+use eframe::egui::{self, Color32, DragValue, RichText, ScrollArea};
 use log::{Level, Metadata, Record};
 use tor_config::{ConfigurationSources, Listen};
 
@@ -49,13 +49,9 @@ pub struct ArtiApp {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-#[derive(Default)]
 pub struct SaveData {
-    socks_listen: Listen,
-    dns_listen: Listen,
-    config_sources: ConfigurationSources,
-    arti_config: ArtiConfig,
-    client_config: TorClientConfig,
+    socks_port: u16,
+    dns_port: u16,
 }
 
 impl ArtiApp {
@@ -111,10 +107,29 @@ impl eframe::App for ArtiApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label("hi");
-            if ui.button("booton").clicked() {
-                log::error!("testicles");
-            }
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.heading("Proxy Configuration");
+            ui.horizontal(|ui| {
+                ui.strong("DNS Port: ");
+                ui.add(DragValue::new(&mut self.save_data.dns_port));
+            });
+            ui.weak("Port to listen on for DNS request (overrides the port in the config if specified).");
+
+            ui.horizontal(|ui| {
+                ui.strong("SOCKS Port: ");
+                ui.add(DragValue::new(&mut self.save_data.dns_port));
+            });
+            ui.weak("Port to listen on for SOCKS connections (overrides the port in the config if specified).")
+
         });
+    }
+}
+
+impl Default for SaveData {
+    fn default() -> Self {
+        Self {
+            dns_port: 53,
+            socks_port: 9150,
+        }
     }
 }
