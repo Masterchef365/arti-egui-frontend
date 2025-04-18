@@ -39,7 +39,7 @@ struct FrontendLogRecord {
     text: String,
 }
 
-struct LogCollector(Sender<FrontendLogRecord>);
+struct LogCollector(Sender<FrontendLogRecord>, egui::Context);
 
 impl log::Log for LogCollector {
     fn enabled(&self, _metadata: &Metadata) -> bool {
@@ -53,6 +53,7 @@ impl log::Log for LogCollector {
                 text: format!("[{}] {}", record.level(), record.args().to_string()),
             })
             .unwrap();
+        self.1.request_repaint();
     }
 
     fn flush(&self) {}
@@ -85,7 +86,7 @@ impl ArtiApp {
             .unwrap_or_default();
         let (tx, rx) = channel();
 
-        log::set_logger(Box::leak(Box::new(LogCollector(tx)))).unwrap();
+        log::set_logger(Box::leak(Box::new(LogCollector(tx, cc.egui_ctx.clone())))).unwrap();
         log::set_max_level(log::LevelFilter::Info);
 
         let rt = TokioRustlsRuntime::create()?;
