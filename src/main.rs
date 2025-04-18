@@ -1,6 +1,6 @@
 use std::sync::{mpsc::{channel, Receiver, Sender}, Arc};
 use tor_rtcompat::ToplevelBlockOn;
-use log::{warn, info, error};
+use log::{debug, error, info, warn};
 
 use anyhow::Result;
 use arti::{dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiConfig};
@@ -243,41 +243,27 @@ async fn run_proxy(
     )?;
 
     let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
-    if !socks_listen.is_empty() {
+
         let runtime = runtime.clone();
         let client = client.isolated_client();
         let socks_listen = socks_listen.clone();
         proxy.push(Box::pin(async move {
-            let res = run_socks_proxy(runtime, client, socks_listen, rpc_data).await;
+            let res = run_socks_proxy(runtime, client, socks_listen, None).await;
             (res, "SOCKS")
         }));
-    }
 
-    if !dns_listen.is_empty() {
+
         let runtime = runtime.clone();
         let client = client.isolated_client();
         proxy.push(Box::pin(async move {
             let res = run_dns_resolver(runtime, client, dns_listen).await;
             (res, "DNS")
         }));
-    }
-
-
-    if proxy.is_empty() {
-        if !launched_onion_svc {
-            warn!("No proxy port set; specify -p PORT (for `socks_port`) or -d PORT (for `dns_port`). Alternatively, use the `socks_port` or `dns_port` configuration option.");
-            return Ok(());
-        } else {
-            // Push a dummy future to appease future::select_all,
-            // which expects a non-empty list
-            proxy.push(Box::pin(futures::future::pending()));
-        }
-    }
 
     let proxy = futures::future::select_all(proxy).map(|(finished, _index, _others)| finished);
     futures::select!(
-        r = exit::wait_for_ctrl_c().fuse()
-            => r.context("waiting for termination signal"),
+        //r = exit::wait_for_ctrl_c().fuse()
+            //=> r.context("waiting for termination signal"),
         r = proxy.fuse()
             => r.0.context(format!("{} proxy failure", r.1)),
         r = async {
