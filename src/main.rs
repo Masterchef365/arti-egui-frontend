@@ -288,6 +288,7 @@ fn run(
         );
     }
 
+    /*
     // TODO!!!
     let listen = 1337;
     metrics_exporter_prometheus::PrometheusBuilder::new()
@@ -298,6 +299,7 @@ fn run(
         .install()
         .with_context(|| format!("set up Prometheus metrics exporter on {listen}"))?;
     info!("Arti Prometheus metrics export scraper endpoint http://{listen}");
+    */
 
     use_max_file_limit();
 
@@ -342,18 +344,11 @@ async fn run_proxy(
     use arti_client::BootstrapBehavior::OnDemand;
     use futures::FutureExt;
 
-    // TODO RPC: We may instead want to provide a way to get these items out of TorClient.
-    #[allow(unused)]
-    let fs_mistrust = client_config.fs_mistrust().clone();
-    #[allow(unused)]
-    let path_resolver: CfgPathResolver = AsRef::<CfgPathResolver>::as_ref(&client_config).clone();
-
     let client_builder = TorClient::with_runtime(runtime.clone())
         .config(client_config)
         .bootstrap_behavior(OnDemand);
     let client = client_builder.create_unbootstrapped_async().await?;
 
-    #[allow(unused_mut)]
     let mut reconfigurable_modules: Vec<Arc<dyn reload_cfg::ReconfigurableModule>> = vec![
         Arc::new(client.clone()),
         //Arc::new(reload_cfg::Application::new(arti_config.clone())),
