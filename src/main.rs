@@ -5,7 +5,7 @@ use std::{
     sync::{
         mpsc::{channel, Receiver, Sender},
         Arc,
-    },
+    }, thread::JoinHandle,
 };
 use tor_rtcompat::ToplevelBlockOn;
 
@@ -64,6 +64,7 @@ pub struct ArtiApp {
     logs_rx: Receiver<FrontendLogRecord>,
     logs: Vec<FrontendLogRecord>,
     rt: TokioRustlsRuntime,
+    instance: Option<JoinHandle<Result<()>>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -93,6 +94,7 @@ impl ArtiApp {
             save_data,
             logs_rx: rx,
             logs: vec![],
+            instance: None,
         })
     }
 }
@@ -170,7 +172,7 @@ impl Default for SaveData {
     }
 }
 
-fn run_from_savedata(runtime: TokioRustlsRuntime, save: &SaveData) -> Result<()> {
+fn run_from_savedata(runtime: TokioRustlsRuntime, save: &SaveData) -> Result<JoinHandle<Result<()>>> {
     let mut cfg_sources = ConfigurationSources::new_empty();
     for path in &save.config_files {
         let src = ConfigurationSource::from_path(path);
@@ -187,17 +189,19 @@ fn run_from_savedata(runtime: TokioRustlsRuntime, save: &SaveData) -> Result<()>
 
     let log_mistrust = client_config.fs_mistrust().clone();
 
-    std::thread::spawn(move || {
+    let socks_port = save.socks_port;
+    let dns_port = save.dns_port;
+
+    Ok(std::thread::spawn(move || {
         run(
             runtime,
-            save.socks_port,
-            save.dns_port,
+            socks_port,
+            dns_port,
             cfg_sources,
             config,
             client_config,
         )
-    });
-    Ok(())
+    }))
 }
 
 fn run(
