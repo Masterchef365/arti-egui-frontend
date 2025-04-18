@@ -2,7 +2,7 @@ use std::sync::{mpsc::{channel, Receiver, Sender}, Arc};
 use tor_rtcompat::ToplevelBlockOn;
 use log::{debug, error, info, warn};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use arti::{dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiConfig};
 use arti_client::{config::CfgPathResolver, TorClient, TorClientConfig};
 use eframe::egui::{self, Color32, DragValue, RichText, ScrollArea};
@@ -11,10 +11,11 @@ use tor_config::{ConfigurationSources, Listen};
 use tor_rtcompat::tokio::TokioRustlsRuntime;
 
 fn main() {
+    let app = 
     eframe::run_native(
         "Arti",
         Default::default(),
-        Box::new(|cc| Ok(Box::new(ArtiApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(ArtiApp::new(cc)?))),
     )
     .unwrap();
 }
@@ -50,6 +51,7 @@ pub struct ArtiApp {
     pub save_data: SaveData,
     logs_rx: Receiver<FrontendLogRecord>,
     logs: Vec<FrontendLogRecord>,
+    rt: TokioRustlsRuntime,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -60,7 +62,7 @@ pub struct SaveData {
 }
 
 impl ArtiApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self> {
         let save_data = cc
             .storage
             .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY))
@@ -70,11 +72,14 @@ impl ArtiApp {
         log::set_logger(Box::leak(Box::new(LogCollector(tx)))).unwrap();
         log::set_max_level(log::LevelFilter::Info);
 
-        Self {
+        let rt = TokioRustlsRuntime::create()?;
+
+        Ok(Self {
+            rt,
             save_data,
             logs_rx: rx,
             logs: vec![],
-        }
+        })
     }
 }
 
@@ -172,7 +177,7 @@ fn run(
 
     let rt_copy = runtime.clone();
     rt_copy.block_on(run_proxy(
-        runtime,
+        &runtime,
         socks_listen,
         dns_listen,
         cfg_sources,
@@ -200,7 +205,7 @@ pub fn use_max_file_limit(config: &ArtiConfig) {
 
 
 async fn run_proxy(
-    runtime: TokioRustlsRuntime,
+    runtime: &TokioRustlsRuntime,
     socks_listen: Listen,
     dns_listen: Listen,
     config_sources: ConfigurationSources,
@@ -226,7 +231,7 @@ async fn run_proxy(
     #[allow(unused_mut)]
     let mut reconfigurable_modules: Vec<Arc<dyn reload_cfg::ReconfigurableModule>> = vec![
         Arc::new(client.clone()),
-        Arc::new(reload_cfg::Application::new(arti_config.clone())),
+        //Arc::new(reload_cfg::Application::new(arti_config.clone())),
     ];
 
     // We weak references here to prevent the thread spawned by watch_for_config_changes from
@@ -244,6 +249,7 @@ async fn run_proxy(
 
     let mut proxy: Vec<PinnedFuture<(Result<()>, &str)>> = Vec::new();
 
+    {
         let runtime = runtime.clone();
         let client = client.isolated_client();
         let socks_listen = socks_listen.clone();
@@ -251,14 +257,17 @@ async fn run_proxy(
             let res = run_socks_proxy(runtime, client, socks_listen, None).await;
             (res, "SOCKS")
         }));
+    }
 
 
+    {
         let runtime = runtime.clone();
         let client = client.isolated_client();
         proxy.push(Box::pin(async move {
             let res = run_dns_resolver(runtime, client, dns_listen).await;
             (res, "DNS")
         }));
+    }
 
     let proxy = futures::future::select_all(proxy).map(|(finished, _index, _others)| finished);
     futures::select!(
