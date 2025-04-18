@@ -5,7 +5,8 @@ use std::{
     sync::{
         mpsc::{channel, Receiver, Sender},
         Arc,
-    }, thread::JoinHandle,
+    },
+    thread::JoinHandle,
 };
 use tor_rtcompat::ToplevelBlockOn;
 
@@ -114,7 +115,7 @@ impl eframe::App for ArtiApp {
             self.logs = self.logs[n / 2..].to_vec();
         }
 
-        egui::TopBottomPanel::bottom("logs").show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("logs").resizable(true).show(ctx, |ui| {
             ui.heading("Logs");
             let n = self.logs.len();
             ScrollArea::vertical().show_rows(ui, 18.0, n, |ui, rows| {
@@ -133,20 +134,77 @@ impl eframe::App for ArtiApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
-            ui.heading("Proxy Configuration");
-            ui.horizontal(|ui| {
-                ui.strong("DNS Port: ");
-                ui.add(DragValue::new(&mut self.save_data.dns_port));
-            });
-            ui.weak("Port to listen on for DNS request (overrides the port in the config if specified).");
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            if let Some(instance) = &mut self.instance {
+                if instance.is_finished() {
+                    let Some(instance) = self.instance.take() else { unreachable!() };
+                    match instance.join() {
+                        Err(_) => { log::error!("Join failed"); return },
+                        Ok(result) => {
+                            log::error!("Instance stopped");
+                            if let Err(e) = result {
+                                log::error!("{e}");
+                            }
+                        }
+                    }
+                } else {
+                    ui.label("Running");
+                    if ui.button("Stop").clicked() {
+                        todo!();
+                    }
+                }
+            } else {
+                ui.spacing_mut().item_spacing.y = 10.0;
+                ui.heading("Proxy Configuration");
+                ui.horizontal(|ui| {
+                    ui.strong("DNS Port: ");
+                    ui.add(DragValue::new(&mut self.save_data.dns_port));
+                });
+                ui.weak("Port to listen on for DNS request (overrides the port in the config if specified).");
 
-            ui.horizontal(|ui| {
-                ui.strong("SOCKS Port: ");
-                ui.add(DragValue::new(&mut self.save_data.dns_port));
-            });
-            ui.weak("Port to listen on for SOCKS connections (overrides the port in the config if specified).")
+                ui.horizontal(|ui| {
+                    ui.strong("SOCKS Port: ");
+                    ui.add(DragValue::new(&mut self.save_data.socks_port));
+                });
+                ui.weak("Port to listen on for SOCKS connections (overrides the port in the config if specified).");
 
+                ui.group(|ui| {
+                    ui.strong("Config files");
+                    ScrollArea::vertical()
+                        .id_salt("config")
+                        .show(ui, |ui| {
+                            let mut del = None;
+                            for (idx, cfg) in self.save_data.config_files.iter_mut().enumerate() {
+                                let mut s = cfg.to_string_lossy().to_string();
+                                ui.horizontal(|ui| {
+                                    ui.text_edit_singleline(&mut s);
+                                    if ui.button("Delete").clicked() {
+                                        del = Some(idx);
+                                    }
+                                });
+                                *cfg = s.into();
+                            }
+                            if let Some(idx) = del {
+                                self.save_data.config_files.remove(idx);
+                            }
+                        });
+                    ui.horizontal(|ui| {
+                        if ui.button("New").clicked() {
+                            let cpy = self.save_data.config_files.last().cloned().unwrap_or_default();
+                            self.save_data.config_files.push(cpy);
+                        }
+                    });
+                });
+
+                if ui.button("START").clicked() {
+                    match run_from_savedata(self.rt.clone(), &self.save_data) {
+                        Err(e) => error!("{e:#}"),
+                        Ok(res) => self.instance = Some(res),
+                    }
+                }
+            }
+
+        });
         });
     }
 }
@@ -172,7 +230,10 @@ impl Default for SaveData {
     }
 }
 
-fn run_from_savedata(runtime: TokioRustlsRuntime, save: &SaveData) -> Result<JoinHandle<Result<()>>> {
+fn run_from_savedata(
+    runtime: TokioRustlsRuntime,
+    save: &SaveData,
+) -> Result<JoinHandle<Result<()>>> {
     let mut cfg_sources = ConfigurationSources::new_empty();
     for path in &save.config_files {
         let src = ConfigurationSource::from_path(path);
@@ -334,9 +395,9 @@ async fn run_proxy(
     let proxy = futures::future::select_all(proxy).map(|(finished, _index, _others)| finished);
     futures::select!(
         //r = exit::wait_for_ctrl_c().fuse()
-            //=> r.context("waiting for termination signal"),
+        //=> r.context("waiting for termination signal"),
         r = proxy.fuse()
-            => r.0.context(format!("{} proxy failure", r.1)),
+        => r.0.context(format!("{} proxy failure", r.1)),
         r = async {
             client.bootstrap().await?;
             if !socks_listen.is_empty() {
@@ -346,7 +407,7 @@ async fn run_proxy(
             }
             futures::future::pending::<Result<()>>().await
         }.fuse()
-            => r.context("bootstrap"),
+        => r.context("bootstrap"),
     )?;
 
     // The modules can be dropped now, because we are exiting.
