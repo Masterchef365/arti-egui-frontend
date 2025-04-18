@@ -440,6 +440,7 @@ dependencies = [
  "arti",
  "arti-client",
  "eframe",
+ "fs-mistrust",
  "futures",
  "log",
  "metrics-exporter-prometheus",

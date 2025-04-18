@@ -1,18 +1,27 @@
-use std::sync::{mpsc::{channel, Receiver, Sender}, Arc};
-use tor_rtcompat::ToplevelBlockOn;
 use log::{debug, error, info, warn};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc,
+    },
+};
+use tor_rtcompat::ToplevelBlockOn;
 
 use anyhow::{Context, Result};
-use arti::{dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiConfig};
-use arti_client::{config::CfgPathResolver, TorClient, TorClientConfig};
+use arti::{dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiCombinedConfig, ArtiConfig};
+use arti_client::{
+    config::{default_config_files, CfgPathResolver},
+    TorClient, TorClientConfig,
+};
 use eframe::egui::{self, Color32, DragValue, RichText, ScrollArea};
 use log::{Level, Metadata, Record};
-use tor_config::{ConfigurationSources, Listen};
+use tor_config::{ConfigurationSource, ConfigurationSources, Listen};
 use tor_rtcompat::tokio::TokioRustlsRuntime;
 
 fn main() {
-    let app = 
-    eframe::run_native(
+    let app = eframe::run_native(
         "Arti",
         Default::default(),
         Box::new(|cc| Ok(Box::new(ArtiApp::new(cc)?))),
@@ -59,6 +68,8 @@ pub struct ArtiApp {
 pub struct SaveData {
     socks_port: u16,
     dns_port: u16,
+    config_files: Vec<PathBuf>,
+    toml_overrides: HashMap<String, String>,
 }
 
 impl ArtiApp {
@@ -140,8 +151,42 @@ impl Default for SaveData {
         Self {
             dns_port: 53,
             socks_port: 9150,
+            config_files: default_config_files()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|cfg| {
+                    if let ConfigurationSource::Dir(p) | ConfigurationSource::File(p) = cfg {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+                toml_overrides: HashMap::new(),
         }
     }
+}
+
+
+fn run_from_savedata(runtime: &TokioRustlsRuntime, save: &SaveData) -> Result<()> {
+    let cfg_sources = save.config_files.into_iter().map(|path| ConfigurationSource::from_path(path)).collect()?;
+
+    // A Mistrust object to use for loading our configuration.  Elsewhere, we
+    // use the value _from_ the configuration.
+    let cfg_mistrust = 
+        fs_mistrust::MistrustBuilder::default()
+            .build_for_arti()?;
+
+    let cfg = cfg_sources.load()?;
+    let (config, client_config) =
+        tor_config::resolve::<ArtiCombinedConfig>(cfg).context("read configuration")?;
+
+    let log_mistrust = client_config.fs_mistrust().clone();
+
+
+    std::thread::spawn(move || run(runtime, save.socks_port, save.dns_port, cfg_sources, config, client_config));
+    Ok(())
+
 }
 
 fn run(
@@ -166,14 +211,18 @@ fn run(
         );
     }
 
+    // TODO!!!
     let listen = 1337;
     metrics_exporter_prometheus::PrometheusBuilder::new()
-        .with_http_listener(std::net::SocketAddr::new("127.0.0.1".parse().unwrap(), listen))
+        .with_http_listener(std::net::SocketAddr::new(
+            "127.0.0.1".parse().unwrap(),
+            listen,
+        ))
         .install()
         .with_context(|| format!("set up Prometheus metrics exporter on {listen}"))?;
     info!("Arti Prometheus metrics export scraper endpoint http://{listen}");
 
-    use_max_file_limit(&config);
+    use_max_file_limit();
 
     let rt_copy = runtime.clone();
     rt_copy.block_on(run_proxy(
@@ -196,13 +245,12 @@ fn run(
 /// # Limitations
 ///
 /// This doesn't actually do anything on windows.
-pub fn use_max_file_limit(config: &ArtiConfig) {
+pub fn use_max_file_limit() {
     match rlimit::increase_nofile_limit(16384) {
         Ok(n) => debug!("Increased process file limit to {}", n),
         Err(e) => error!("Error while increasing file limit; {e}"),
     }
 }
-
 
 async fn run_proxy(
     runtime: &TokioRustlsRuntime,
@@ -258,7 +306,6 @@ async fn run_proxy(
             (res, "SOCKS")
         }));
     }
-
 
     {
         let runtime = runtime.clone();
