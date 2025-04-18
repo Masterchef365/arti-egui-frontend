@@ -10,13 +10,16 @@ use std::{
 use tor_rtcompat::ToplevelBlockOn;
 
 use anyhow::{Context, Result};
-use arti::{dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiCombinedConfig, ArtiConfig};
+use arti::{
+    dns::run_dns_resolver, reload_cfg, socks::run_socks_proxy, ArtiCombinedConfig, ArtiConfig,
+};
 use arti_client::{
     config::{default_config_files, CfgPathResolver},
     TorClient, TorClientConfig,
 };
 use eframe::egui::{self, Color32, DragValue, RichText, ScrollArea};
 use log::{Level, Metadata, Record};
+use tor_config::mistrust::BuilderExt;
 use tor_config::{ConfigurationSource, ConfigurationSources, Listen};
 use tor_rtcompat::tokio::TokioRustlsRuntime;
 
@@ -162,20 +165,21 @@ impl Default for SaveData {
                     }
                 })
                 .collect(),
-                toml_overrides: HashMap::new(),
+            toml_overrides: HashMap::new(),
         }
     }
 }
 
-
-fn run_from_savedata(runtime: &TokioRustlsRuntime, save: &SaveData) -> Result<()> {
-    let cfg_sources = save.config_files.into_iter().map(|path| ConfigurationSource::from_path(path)).collect()?;
+fn run_from_savedata(runtime: TokioRustlsRuntime, save: &SaveData) -> Result<()> {
+    let mut cfg_sources = ConfigurationSources::new_empty();
+    for path in &save.config_files {
+        let src = ConfigurationSource::from_path(path);
+        cfg_sources.push_source(src, tor_config::sources::MustRead::MustRead);
+    }
 
     // A Mistrust object to use for loading our configuration.  Elsewhere, we
     // use the value _from_ the configuration.
-    let cfg_mistrust = 
-        fs_mistrust::MistrustBuilder::default()
-            .build_for_arti()?;
+    let cfg_mistrust = fs_mistrust::MistrustBuilder::default().build_for_arti()?;
 
     let cfg = cfg_sources.load()?;
     let (config, client_config) =
@@ -183,10 +187,17 @@ fn run_from_savedata(runtime: &TokioRustlsRuntime, save: &SaveData) -> Result<()
 
     let log_mistrust = client_config.fs_mistrust().clone();
 
-
-    std::thread::spawn(move || run(runtime, save.socks_port, save.dns_port, cfg_sources, config, client_config));
+    std::thread::spawn(move || {
+        run(
+            runtime,
+            save.socks_port,
+            save.dns_port,
+            cfg_sources,
+            config,
+            client_config,
+        )
+    });
     Ok(())
-
 }
 
 fn run(
