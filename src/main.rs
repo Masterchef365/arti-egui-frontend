@@ -74,6 +74,7 @@ pub struct ArtiApp {
 pub struct SaveData {
     socks_port: u16,
     dns_port: u16,
+    dns_enabled: bool,
     config_files: Vec<PathBuf>,
     toml_overrides: HashMap<String, String>,
 }
@@ -163,7 +164,11 @@ impl eframe::App for ArtiApp {
             } else {
                 ui.spacing_mut().item_spacing.y = 10.0;
                 ui.heading("Proxy Configuration");
+                ui.checkbox(&mut self.save_data.dns_enabled, "DNS enabled");
                 ui.horizontal(|ui| {
+                    if !self.save_data.dns_enabled {
+                        ui.disable();
+                    }
                     ui.strong("DNS Port: ");
                     ui.add(DragValue::new(&mut self.save_data.dns_port));
                 });
@@ -221,7 +226,7 @@ impl eframe::App for ArtiApp {
                 }
             }
 
-        });
+            });
         });
     }
 }
@@ -229,6 +234,7 @@ impl eframe::App for ArtiApp {
 impl Default for SaveData {
     fn default() -> Self {
         Self {
+            dns_enabled: true,
             dns_port: 53,
             socks_port: 9150,
             config_files: default_config_files()
@@ -241,7 +247,7 @@ impl Default for SaveData {
                         None
                     }
                 })
-                .collect(),
+            .collect(),
             toml_overrides: HashMap::new(),
         }
     }
@@ -268,7 +274,8 @@ fn run_from_savedata(
     let log_mistrust = client_config.fs_mistrust().clone();
 
     let socks_port = save.socks_port;
-    let dns_port = save.dns_port;
+    let dns_port = 
+            save.dns_enabled.then(|| save.dns_port);
 
     Ok(std::thread::spawn(move || {
         run(
@@ -285,7 +292,7 @@ fn run_from_savedata(
 fn run(
     runtime: TokioRustlsRuntime,
     socks_port: u16,
-    dns_port: u16,
+    dns_port: Option<u16>,
     cfg_sources: ConfigurationSources,
     config: ArtiConfig,
     client_config: TorClientConfig,
@@ -294,7 +301,7 @@ fn run(
     // This implies listening on localhost ports.
     let socks_listen = Listen::new_localhost(socks_port);
 
-    let dns_listen = Listen::new_localhost(dns_port);
+    let dns_listen = dns_port.map(|dns_port| Listen::new_localhost(dns_port));
 
     if !socks_listen.is_empty() {
         info!(
@@ -308,12 +315,12 @@ fn run(
     // TODO!!!
     let listen = 1337;
     metrics_exporter_prometheus::PrometheusBuilder::new()
-        .with_http_listener(std::net::SocketAddr::new(
-            "127.0.0.1".parse().unwrap(),
-            listen,
-        ))
-        .install()
-        .with_context(|| format!("set up Prometheus metrics exporter on {listen}"))?;
+    .with_http_listener(std::net::SocketAddr::new(
+    "127.0.0.1".parse().unwrap(),
+    listen,
+    ))
+    .install()
+    .with_context(|| format!("set up Prometheus metrics exporter on {listen}"))?;
     info!("Arti Prometheus metrics export scraper endpoint http://{listen}");
     */
 
@@ -321,12 +328,12 @@ fn run(
 
     let rt_copy = runtime.clone();
     rt_copy.block_on(run_proxy(
-        &runtime,
-        socks_listen,
-        dns_listen,
-        cfg_sources,
-        config,
-        client_config,
+            &runtime,
+            socks_listen,
+            dns_listen,
+            cfg_sources,
+            config,
+            client_config,
     ))?;
 
     Ok(())
@@ -350,7 +357,7 @@ pub fn use_max_file_limit() {
 async fn run_proxy(
     runtime: &TokioRustlsRuntime,
     socks_listen: Listen,
-    dns_listen: Listen,
+    dns_listen: Option<Listen>,
     config_sources: ConfigurationSources,
     arti_config: ArtiConfig,
     client_config: TorClientConfig,
@@ -398,10 +405,12 @@ async fn run_proxy(
     {
         let runtime = runtime.clone();
         let client = client.isolated_client();
+        if let Some(dns_listen) = dns_listen {
         proxy.push(Box::pin(async move {
             let res = run_dns_resolver(runtime, client, dns_listen).await;
             (res, "DNS")
         }));
+        }
     }
 
     let proxy = futures::future::select_all(proxy).map(|(finished, _index, _others)| finished);
