@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -77,18 +77,20 @@ pub struct SaveData {
     dns_enabled: bool,
     config_files: Vec<PathBuf>,
     toml_overrides: HashMap<String, String>,
+    log_level: LevelFilter,
 }
 
 impl ArtiApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self> {
-        let save_data = cc
+        let save_data: SaveData = cc
             .storage
             .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY))
             .unwrap_or_default();
         let (tx, rx) = channel();
 
         log::set_logger(Box::leak(Box::new(LogCollector(tx, cc.egui_ctx.clone())))).unwrap();
-        log::set_max_level(log::LevelFilter::Debug);
+
+        log::set_max_level(save_data.log_level);
 
         let rt = TokioRustlsRuntime::create()?;
 
@@ -121,6 +123,19 @@ impl eframe::App for ArtiApp {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.heading("Logs");
+
+                ui.horizontal(|ui| {
+                    ui.label("Max log level: ");
+                    for level in LevelFilter::iter() {
+                        if level == LevelFilter::Trace {
+                            continue;
+                        }
+                        if ui.selectable_value(&mut self.save_data.log_level, level, level.to_string()).clicked() {
+                            log::set_max_level(self.save_data.log_level);
+                        }
+                    }
+                });
+
                 let n = self.logs.len();
                 ScrollArea::vertical()
                     .auto_shrink(false)
@@ -218,7 +233,7 @@ impl eframe::App for ArtiApp {
                     });
                 });
 
-                if ui.button("START").clicked() {
+                if ui.button(RichText::new("START").strong().size(30.)).clicked() {
                     match run_from_savedata(self.rt.clone(), &self.save_data) {
                         Err(e) => error!("{e:#}"),
                         Ok(res) => self.instance = Some(res),
@@ -249,6 +264,7 @@ impl Default for SaveData {
                 })
             .collect(),
             toml_overrides: HashMap::new(),
+            log_level: LevelFilter::Debug,
         }
     }
 }
