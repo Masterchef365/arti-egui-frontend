@@ -18,3 +18,4 @@ tor-config = "0.29.0"
 metrics-exporter-prometheus = { version = "0.16.2", default-features = false, features = ["http-listener"] }
 rlimit = "0.10.1"
 futures = "0.3.14"
+rfd = "0.15.3"

@@ -171,6 +171,7 @@ impl eframe::App for ArtiApp {
 
                 ui.group(|ui| {
                     ui.strong("Config files");
+                    ui.weak("Add config files and directories");
                     ScrollArea::vertical()
                         .id_salt("config")
                         .show(ui, |ui| {
@@ -190,9 +191,18 @@ impl eframe::App for ArtiApp {
                             }
                         });
                     ui.horizontal(|ui| {
-                        if ui.button("New").clicked() {
-                            let cpy = self.save_data.config_files.last().cloned().unwrap_or_default();
-                            self.save_data.config_files.push(cpy);
+                        if ui.button("Add empty").clicked() {
+                            self.save_data.config_files.push("".into());
+                        }
+                        if ui.button("Add folder").clicked() {
+                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                self.save_data.config_files.push(folder);
+                            }
+                        }
+                        if ui.button("Add file").clicked() {
+                            if let Some(file) = rfd::FileDialog::new().add_filter("toml", &["toml"]).pick_file() {
+                                self.save_data.config_files.push(file);
+                            }
                         }
                     });
                 });
