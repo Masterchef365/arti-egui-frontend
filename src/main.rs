@@ -87,7 +87,7 @@ impl ArtiApp {
         let (tx, rx) = channel();
 
         log::set_logger(Box::leak(Box::new(LogCollector(tx, cc.egui_ctx.clone())))).unwrap();
-        log::set_max_level(log::LevelFilter::Info);
+        log::set_max_level(log::LevelFilter::Debug);
 
         let rt = TokioRustlsRuntime::create()?;
 
@@ -116,35 +116,41 @@ impl eframe::App for ArtiApp {
             self.logs = self.logs[n / 2..].to_vec();
         }
 
-        egui::TopBottomPanel::bottom("logs").resizable(true).show(ctx, |ui| {
-            ui.heading("Logs");
-            let n = self.logs.len();
-            ScrollArea::vertical().show_rows(ui, 18.0, n, |ui, rows| {
-                for row in rows {
-                    let color = match self.logs[row].level {
-                        Level::Warn => Color32::YELLOW,
-                        Level::Error => Color32::RED,
-                        Level::Info => Color32::GRAY,
-                        Level::Trace => Color32::BLUE,
-                        Level::Debug => Color32::GREEN,
-                    };
+        egui::TopBottomPanel::bottom("logs")
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("Logs");
+                let n = self.logs.len();
+                ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show_rows(ui, 18.0, n, |ui, rows| {
+                        for row in rows {
+                            let color = match self.logs[row].level {
+                                Level::Warn => Color32::YELLOW,
+                                Level::Error => Color32::RED,
+                                Level::Info => Color32::GRAY,
+                                Level::Trace => Color32::BLUE,
+                                Level::Debug => Color32::GREEN,
+                            };
 
-                    ui.label(RichText::new(&self.logs[row].text).color(color));
-                }
+                            ui.label(RichText::new(&self.logs[row].text).color(color));
+                        }
+                    });
             });
-        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, true]).show(ui, |ui| {
             if let Some(instance) = &mut self.instance {
                 if instance.is_finished() {
                     let Some(instance) = self.instance.take() else { unreachable!() };
                     match instance.join() {
                         Err(_) => { log::error!("Join failed"); return },
                         Ok(result) => {
-                            log::error!("Instance stopped");
                             if let Err(e) = result {
-                                log::error!("{e}");
+                                log::error!("Instance stopped, reason below:");
+                                log::error!("{e:#}");
+                            } else {
+                                log::info!("Ended gracefully");
                             }
                         }
                     }
